@@ -144,8 +144,21 @@ class FcmService {
   Future<void> unsubscribeFromTopic(String topic) =>
       _fcm.unsubscribeFromTopic(topic);
 
-  /// Save [fcmToken] to the Supabase profiles table so the server can target
-  /// this device.  Call after login and token refresh.
+  /// Save current [fcmToken] to the Supabase profiles table, and re-save
+  /// whenever the token refreshes.  Call once after login.
+  void registerTokenWithProfile(
+    Future<void> Function(String token) saveCallback,
+  ) {
+    if (_fcmToken != null) {
+      saveCallback(_fcmToken!).catchError((_) {});
+    }
+    _fcm.onTokenRefresh.listen((token) {
+      _fcmToken = token;
+      saveCallback(token).catchError((_) {});
+    });
+  }
+
+  /// One-shot: save current token only (no refresh listener).
   Future<void> saveFcmTokenToProfile(
     Future<void> Function(String token) saveCallback,
   ) async {
