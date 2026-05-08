@@ -4,6 +4,7 @@ import 'package:bhaichara/core/theme/app_colors.dart';
 import 'package:go_router/go_router.dart';
 import 'package:bhaichara/core/router/app_routes.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:bhaichara/core/database/database_helper.dart';
 import 'package:bhaichara/features/profile/presentation/providers/follow_provider.dart';
 import 'package:bhaichara/features/profile/domain/entities/follow_entity.dart';
 import 'package:bhaichara/features/auth/domain/entities/user_entity.dart';
@@ -178,17 +179,16 @@ class _DefaultFriendsList extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final recentChatsAsync = ref.watch(recentChatsWithMetadataProvider);
+    // Reads from sqflite — no Supabase/Firebase in the UI layer
+    final recentChatsAsync = ref.watch(recentChatsProvider);
     final friendsAsync = ref.watch(acceptedFriendsProvider);
     final myId = ref.watch(supabaseClientProvider).auth.currentUser?.id;
 
-
     return recentChatsAsync.when(
-      data: (summaries) {
+      data: (recentChats) {
         return friendsAsync.when(
           data: (friends) {
-            if (friends.isEmpty && summaries.isEmpty) {
-
+            if (friends.isEmpty && recentChats.isEmpty) {
               return const Center(
                 child: Text(
                   'No friends yet. Search to add people!',
@@ -197,46 +197,37 @@ class _DefaultFriendsList extends ConsumerWidget {
               );
             }
 
-            // Create a map of friends for quick lookup
             final friendMap = {for (final f in friends) f.id: f};
-            
-            // Build the list of items to show
             final List<Widget> listItems = [];
 
-            // 1. Add Recent Chats
-            for (final summary in summaries) {
-              final msg = summary.lastMessage;
-              final otherId = msg.senderId == myId ? msg.receiverId : msg.senderId;
+            // 1. Friends with recent messages (sorted by latest message)
+            for (final chat in recentChats) {
+              final otherId = chat.otherUserId;
               if (otherId == null) continue;
-              
               final friend = friendMap[otherId];
-              if (friend == null) continue; 
-              
+              if (friend == null) continue;
               friendMap.remove(otherId);
 
               listItems.add(_FriendChatTile(
                 friend: friend,
-                lastMessage: msg,
-                unreadCount: summary.unreadCount,
+                lastMessage: chat.lastMessage,
+                unreadCount: chat.unreadCount,
               ));
             }
 
-
-            // 2. Add remaining friends who have no messages
+            // 2. Friends with no messages yet
             for (final friend in friendMap.values) {
-              listItems.add(_FriendChatTile(
-                friend: friend,
-              ));
+              listItems.add(_FriendChatTile(friend: friend));
             }
 
             return ListView(children: listItems);
           },
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, st) => Center(child: Text('Error: $e')),
+          error: (e, _) => Center(child: Text('Error: $e')),
         );
       },
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (e, st) => Center(child: Text('Error: $e')),
+      error: (e, _) => Center(child: Text('Error: $e')),
     );
   }
 }
@@ -251,6 +242,26 @@ class _FriendChatTile extends ConsumerWidget {
     this.lastMessage,
     this.unreadCount = 0,
   });
+
+  Widget _buildMiniTick(MessageStatus status) {
+    switch (status) {
+      case MessageStatus.sending:
+        return Icon(Icons.access_time_rounded,
+            size: 14,
+            color: AppColors.textSecondary.withOpacity(0.4));
+      case MessageStatus.sent:
+        return Icon(Icons.done,
+            size: 16,
+            color: AppColors.textSecondary.withOpacity(0.5));
+      case MessageStatus.delivered:
+        return Icon(Icons.done_all,
+            size: 16,
+            color: AppColors.textSecondary.withOpacity(0.5));
+      case MessageStatus.read:
+        return const Icon(Icons.done_all,
+            size: 16, color: AppColors.tickRead);
+    }
+  }
 
 
   @override
@@ -288,9 +299,11 @@ class _FriendChatTile extends ConsumerWidget {
           children: [
             Expanded(
               child: Text(
-                lastMessage != null 
-                  ? (lastMessage!.isEncrypted ? 'Message' : lastMessage!.content)
-                  : '@${friend.username ?? 'user'}',
+                lastMessage != null
+                    ? (lastMessage!.type != MessageType.text
+                        ? '📎 ${lastMessage!.type.name}'
+                        : lastMessage!.content)
+                    : '@${friend.username ?? 'user'}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -313,11 +326,7 @@ class _FriendChatTile extends ConsumerWidget {
                 ),
               )
             else if (lastMessage != null && lastMessage!.senderId != friend.id)
-              Icon(
-                lastMessage!.isRead ? Icons.done_all : Icons.done,
-                size: 16, 
-                color: lastMessage!.isRead ? const Color(0xFF34B7F1) : AppColors.textSecondary.withValues(alpha: 0.5)
-              ),
+              _buildMiniTick(lastMessage!.status),
           ],
         ),
       ),

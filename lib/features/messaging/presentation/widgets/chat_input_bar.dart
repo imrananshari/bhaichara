@@ -4,13 +4,15 @@ import 'package:bhaichara/core/theme/app_colors.dart';
 class ChatInputBar extends StatefulWidget {
   final Function(String) onSend;
   final VoidCallback onPickImage;
-  final VoidCallback onVoiceChat;
+
+  /// Called whenever the typing state changes (true = user is typing).
+  final Function(bool isTyping)? onTyping;
 
   const ChatInputBar({
     super.key,
     required this.onSend,
     required this.onPickImage,
-    required this.onVoiceChat,
+    this.onTyping,
   });
 
   @override
@@ -29,10 +31,19 @@ class _ChatInputBarState extends State<ChatInputBar> {
 
   void _handleSend() {
     final text = _controller.text.trim();
-    if (text.isNotEmpty) {
-      widget.onSend(text);
-      _controller.clear();
-      setState(() => _isWriting = false);
+    if (text.isEmpty) return;
+    widget.onSend(text);
+    _controller.clear();
+    setState(() => _isWriting = false);
+    // Notify stopped typing after send
+    widget.onTyping?.call(false);
+  }
+
+  void _onChanged(String text) {
+    final writing = text.trim().isNotEmpty;
+    if (writing != _isWriting) {
+      setState(() => _isWriting = writing);
+      widget.onTyping?.call(writing);
     }
   }
 
@@ -42,7 +53,8 @@ class _ChatInputBarState extends State<ChatInputBar> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       decoration: BoxDecoration(
         color: AppColors.background,
-        border: Border(top: BorderSide(color: AppColors.primary.withOpacity(0.1))),
+        border: Border(
+            top: BorderSide(color: AppColors.primary.withOpacity(0.1))),
       ),
       child: Row(
         children: [
@@ -56,18 +68,18 @@ class _ChatInputBarState extends State<ChatInputBar> {
               decoration: BoxDecoration(
                 color: AppColors.surface,
                 borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: AppColors.primary.withOpacity(0.1)),
+                border:
+                    Border.all(color: AppColors.primary.withOpacity(0.12)),
               ),
               child: TextField(
                 controller: _controller,
-                style: const TextStyle(color: AppColors.textPrimary, fontSize: 16),
+                style: const TextStyle(
+                    color: AppColors.textPrimary, fontSize: 16),
                 maxLines: 5,
                 minLines: 1,
-                onChanged: (text) {
-                  setState(() => _isWriting = text.trim().isNotEmpty);
-                },
+                onChanged: _onChanged,
                 decoration: const InputDecoration(
-                  hintText: 'Message...',
+                  hintText: 'Message…',
                   hintStyle: TextStyle(color: AppColors.textSecondary),
                   border: InputBorder.none,
                   isDense: true,
@@ -80,29 +92,10 @@ class _ChatInputBarState extends State<ChatInputBar> {
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 200),
             child: _isWriting
-                ? Container(
-                    key: const ValueKey('send'),
-                    decoration: const BoxDecoration(
-                      color: AppColors.primary,
-                      shape: BoxShape.circle,
-                    ),
-                    child: IconButton(
-                      icon: const Icon(Icons.send, color: Colors.black, size: 20),
-                      onPressed: _handleSend,
-                    ),
-                  )
-                : Row(
+                ? _SendButton(key: const ValueKey('send'), onSend: _handleSend)
+                : _ActionsRow(
                     key: const ValueKey('actions'),
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.camera_alt_outlined, color: AppColors.textSecondary),
-                        onPressed: widget.onPickImage,
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.mic_none, color: AppColors.primary),
-                        onPressed: widget.onVoiceChat,
-                      ),
-                    ],
+                    onPickImage: widget.onPickImage,
                   ),
           ),
         ],
@@ -111,3 +104,43 @@ class _ChatInputBarState extends State<ChatInputBar> {
   }
 }
 
+class _SendButton extends StatelessWidget {
+  final VoidCallback onSend;
+  const _SendButton({super.key, required this.onSend});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.primary,
+        shape: BoxShape.circle,
+      ),
+      child: IconButton(
+        icon: const Icon(Icons.send, color: Colors.black, size: 20),
+        onPressed: onSend,
+      ),
+    );
+  }
+}
+
+class _ActionsRow extends StatelessWidget {
+  final VoidCallback onPickImage;
+  const _ActionsRow({super.key, required this.onPickImage});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        IconButton(
+          icon: const Icon(Icons.camera_alt_outlined,
+              color: AppColors.textSecondary),
+          onPressed: onPickImage,
+        ),
+        IconButton(
+          icon: const Icon(Icons.mic_none, color: AppColors.primary),
+          onPressed: () {},
+        ),
+      ],
+    );
+  }
+}

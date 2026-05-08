@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:bhaichara/core/theme/app_colors.dart';
 import 'package:bhaichara/features/messaging/domain/entities/message_entity.dart';
 import 'package:intl/intl.dart';
-import 'package:bhaichara/core/services/encryption_service.dart';
 
-class ChatBubble extends ConsumerStatefulWidget {
+class ChatBubble extends StatelessWidget {
   final MessageEntity message;
   final bool isMe;
   final String? senderName;
@@ -20,90 +18,23 @@ class ChatBubble extends ConsumerStatefulWidget {
   });
 
   @override
-  ConsumerState<ChatBubble> createState() => _ChatBubbleState();
-}
-
-class _ChatBubbleState extends ConsumerState<ChatBubble> {
-  String? _decryptedContent;
-  bool _isDecrypting = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _handleDecryption();
-  }
-
-  @override
-  void didUpdateWidget(ChatBubble oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.message.content != widget.message.content || 
-        oldWidget.message.isEncrypted != widget.message.isEncrypted) {
-      _handleDecryption();
-    }
-  }
-
-  Future<void> _handleDecryption() async {
-    if (!widget.message.isEncrypted || widget.message.isDeleted) return;
-
-    if (mounted) setState(() => _isDecrypting = true);
-    try {
-      final myId = widget.isMe ? widget.message.senderId : widget.message.receiverId;
-      final otherPartyId = widget.isMe ? widget.message.receiverId : widget.message.senderId;
-      
-      if (otherPartyId == null) throw Exception('No other party ID');
-
-      final decrypted = await ref.read(encryptionServiceProvider).decryptMessage(
-        otherPartyId: otherPartyId,
-        ciphertext: widget.message.content,
-        iv: widget.message.iv ?? '',
-      );
-      if (mounted) {
-        setState(() {
-          _decryptedContent = decrypted;
-          _isDecrypting = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _decryptedContent = widget.message.content; // Fallback to raw if error
-          _isDecrypting = false;
-        });
-      }
-    }
-
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final message = widget.message;
-    final isMe = widget.isMe;
-    final senderName = widget.senderName;
-    final onDelete = widget.onDelete;
-
-    if (message.isDeleted) {
-      return _buildDeletedBubble();
-    }
-
-    final displayContent = message.isOptimistic
-        ? message.content
-        : (message.isEncrypted 
-            ? (_decryptedContent ?? '') // Silent loading
-            : message.content);
-
+    if (message.isDeleted) return _DeletedBubble(isMe: isMe);
 
     return GestureDetector(
       onLongPress: isMe ? onDelete : null,
       child: Align(
         alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
         child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+          margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 8),
           padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
           constraints: BoxConstraints(
             maxWidth: MediaQuery.of(context).size.width * 0.75,
           ),
           decoration: BoxDecoration(
-            color: isMe ? AppColors.primary.withOpacity(0.15) : AppColors.surface,
+            color: isMe
+                ? AppColors.primary.withOpacity(0.18)
+                : AppColors.surface,
             borderRadius: BorderRadius.only(
               topLeft: const Radius.circular(16),
               topRight: const Radius.circular(16),
@@ -111,7 +42,9 @@ class _ChatBubbleState extends ConsumerState<ChatBubble> {
               bottomRight: Radius.circular(isMe ? 0 : 16),
             ),
             border: Border.all(
-              color: isMe ? AppColors.primary.withOpacity(0.3) : Colors.white12,
+              color: isMe
+                  ? AppColors.primary.withOpacity(0.25)
+                  : Colors.white10,
               width: 0.5,
             ),
           ),
@@ -119,52 +52,65 @@ class _ChatBubbleState extends ConsumerState<ChatBubble> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Group chat sender name
               if (!isMe && senderName != null)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 4),
                   child: Text(
                     senderName!,
                     style: const TextStyle(
-                      color: AppColors.primary,
+                      color: AppColors.accent,
                       fontWeight: FontWeight.bold,
                       fontSize: 12,
                     ),
                   ),
                 ),
-              Text(
-                displayContent,
-                style: const TextStyle(color: AppColors.textPrimary, fontSize: 15),
-              ),
-              const SizedBox(height: 2),
+
+              // Reply preview
+              if (message.replyToId != null)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border(
+                      left: BorderSide(
+                          color: AppColors.primary.withOpacity(0.6), width: 3),
+                    ),
+                  ),
+                  child: Text(
+                    'Reply',
+                    style: TextStyle(
+                      color: AppColors.textSecondary.withOpacity(0.8),
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+
+              // Message content
+              _buildContent(),
+
+              const SizedBox(height: 3),
+
+              // Timestamp + tick row
               Row(
                 mainAxisSize: MainAxisSize.min,
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  const SizedBox(width: 40),
+                  const SizedBox(width: 36),
                   Text(
                     DateFormat('HH:mm').format(message.createdAt.toLocal()),
                     style: TextStyle(
-                      color: AppColors.textSecondary.withOpacity(0.5),
+                      color: AppColors.textSecondary.withOpacity(0.55),
                       fontSize: 10,
                     ),
                   ),
-
                   if (isMe) ...[
                     const SizedBox(width: 4),
-                    if (message.isOptimistic)
-                      Icon(
-                        Icons.access_time, // Clock icon for pending
-                        size: 13,
-                        color: AppColors.textSecondary.withOpacity(0.3),
-                      )
-                    else
-                      Icon(
-                        message.isRead ? Icons.done_all : Icons.done,
-                        size: 15,
-                        color: message.isRead ? const Color(0xFF34B7F1) : AppColors.textSecondary.withOpacity(0.5),
-                      ),
+                    _StatusTick(status: message.status),
                   ],
-
                 ],
               ),
             ],
@@ -174,11 +120,67 @@ class _ChatBubbleState extends ConsumerState<ChatBubble> {
     );
   }
 
-  Widget _buildDeletedBubble() {
+  Widget _buildContent() {
+    switch (message.type) {
+      case MessageType.image:
+        return _ImageBubble(url: message.mediaUrl);
+      case MessageType.audio:
+        return _AudioBubble(
+            url: message.mediaUrl,
+            durationSeconds: message.mediaDuration ?? 0);
+      default:
+        return Text(
+          message.content,
+          style: const TextStyle(color: AppColors.textPrimary, fontSize: 15),
+        );
+    }
+  }
+}
+
+// ── 4-state tick widget ───────────────────────────────────────────────────────
+
+class _StatusTick extends StatelessWidget {
+  final MessageStatus status;
+  const _StatusTick({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    switch (status) {
+      case MessageStatus.sending:
+        // Clock icon — saved locally, not yet in Firebase
+        return Icon(
+          Icons.access_time_rounded,
+          size: 13,
+          color: AppColors.textSecondary.withOpacity(0.4),
+        );
+
+      case MessageStatus.sent:
+        // Single grey tick — in Firebase, not yet delivered
+        return Icon(Icons.done, size: 15, color: AppColors.tickUnread);
+
+      case MessageStatus.delivered:
+        // Double grey ticks — receiver's device received it
+        return Icon(Icons.done_all, size: 15, color: AppColors.tickUnread);
+
+      case MessageStatus.read:
+        // Double VIOLET ticks — receiver has opened the chat
+        return Icon(Icons.done_all, size: 15, color: AppColors.tickRead);
+    }
+  }
+}
+
+// ── Deleted bubble ────────────────────────────────────────────────────────────
+
+class _DeletedBubble extends StatelessWidget {
+  final bool isMe;
+  const _DeletedBubble({required this.isMe});
+
+  @override
+  Widget build(BuildContext context) {
     return Align(
-      alignment: widget.isMe ? Alignment.centerRight : Alignment.centerLeft,
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+        margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 8),
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
         decoration: BoxDecoration(
           color: Colors.transparent,
@@ -188,10 +190,12 @@ class _ChatBubbleState extends ConsumerState<ChatBubble> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.block, size: 14, color: AppColors.textSecondary.withOpacity(0.5)),
+            Icon(Icons.block,
+                size: 14,
+                color: AppColors.textSecondary.withOpacity(0.5)),
             const SizedBox(width: 8),
             Text(
-              widget.isMe ? 'You deleted this message' : 'This message was deleted',
+              isMe ? 'You deleted this message' : 'This message was deleted',
               style: TextStyle(
                 color: AppColors.textSecondary.withOpacity(0.5),
                 fontStyle: FontStyle.italic,
@@ -201,6 +205,98 @@ class _ChatBubbleState extends ConsumerState<ChatBubble> {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ── Image bubble ──────────────────────────────────────────────────────────────
+
+class _ImageBubble extends StatelessWidget {
+  final String? url;
+  const _ImageBubble({this.url});
+
+  @override
+  Widget build(BuildContext context) {
+    if (url == null) {
+      return Container(
+        height: 160,
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: const Center(
+          child: Icon(Icons.broken_image_outlined,
+              color: AppColors.textSecondary),
+        ),
+      );
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Image.network(
+        // ImageKit transformation: 300px wide thumbnail
+        '$url?tr=w-300,fo-auto',
+        fit: BoxFit.cover,
+        loadingBuilder: (_, child, progress) => progress == null
+            ? child
+            : Container(
+                height: 160,
+                color: AppColors.surface,
+                child: const Center(child: CircularProgressIndicator()),
+              ),
+        errorBuilder: (_, __, ___) => Container(
+          height: 120,
+          color: AppColors.surface,
+          child: const Center(
+              child: Icon(Icons.broken_image, color: AppColors.textSecondary)),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Audio bubble ──────────────────────────────────────────────────────────────
+
+class _AudioBubble extends StatelessWidget {
+  final String? url;
+  final int durationSeconds;
+  const _AudioBubble({this.url, required this.durationSeconds});
+
+  String _formatDuration(int seconds) {
+    final m = seconds ~/ 60;
+    final s = seconds % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.play_circle_fill,
+            color: AppColors.primary, size: 36),
+        const SizedBox(width: 8),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 120,
+              height: 2,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.4),
+                borderRadius: BorderRadius.circular(1),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _formatDuration(durationSeconds),
+              style: TextStyle(
+                color: AppColors.textSecondary.withOpacity(0.8),
+                fontSize: 11,
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }
